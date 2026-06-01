@@ -1,0 +1,96 @@
+if os.path.exists('/content/sample_data/preprocessed city_day.csv'):
+    print("File exists")
+else:
+    print("File not found")
+from google.colab import files
+#uploaded = files.upload('/content/sample_data/preprocessed city_day.csv') #Removed since files.upload is for uploading to the colab session, and the file is already present.
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, accuracy_score
+#import joblib #Removed unused import
+
+# 🔹 Load Data
+def load_data(file_path, seq_length=30):
+    # Read CSV
+    df = pd.read_csv(file_path, parse_dates=['Date'], index_col='Date') 
+
+    # Handle missing values (forward fill)
+    df.fillna(method='ffill', inplace=True)
+
+    # Select AQI and PM2.5
+    values = df[['AQI', 'PM2.5']].values
+
+    # Normalize Data
+    scaler = MinMaxScaler()
+    values_scaled = scaler.fit_transform(values)
+
+    # Create sequences
+    X, y = [], []
+    for i in range(len(values_scaled) - seq_length):
+        X.append(values_scaled[i:i + seq_length])
+        y.append(values_scaled[i + seq_length])
+    X, y = np.array(X), np.array(y)
+
+    # Train-Test Split (80-20)
+    train_size = int(len(X) * 0.8)
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
+
+    return X_train, X_test, y_train, y_test, scaler, df #Returning df
+
+# Load Preprocessed Data
+file_path = "/content/sample_data/preprocessed city_day.csv"  
+X_train, X_test, y_train, y_test, scaler, df = load_data('/content/sample_data/preprocessed city_day.csv')
+def build_lstm(seq_length=30):
+    model = Sequential([
+        LSTM(64, activation='relu', return_sequences=True, input_shape=(seq_length, 2)),
+        LSTM(32, activation='relu', return_sequences=False),
+        Dense(2)  # Output: [AQI, PM2.5]
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+# Train LSTM Model
+lstm_model = build_lstm()
+lstm_model.fit(X_train, y_train, epochs=3, batch_size=32, validation_data=(X_test, y_test))
+
+# 🔹 Predictions & Inverse Transform
+predictions = lstm_model.predict(X_test)
+predictions = scaler.inverse_transform(predictions)
+y_test_actual = scaler.inverse_transform(y_test)
+
+# 🔹 Calculate Metrics
+mse = mean_squared_error(y_test_actual, predictions)
+mae = mean_absolute_error(y_test_actual, predictions)
+r2 = r2_score(y_test_actual, predictions)
+rmse = np.sqrt(mse)
+
+# Print Metrics
+print(f'MSE: {mse}')
+print(f'RMSE: {rmse}')
+print(f'MAE: {mae}')
+print(f'R2 Score: {r2}')
+
+# 🔹 Plot Actual vs Predicted AQI & PM2.5
+plt.figure(figsize=(12, 6))
+plt.plot(y_test_actual[:, 0], label='Actual AQI')
+plt.plot(predictions[:, 0], label='Predicted AQI')
+plt.plot(y_test_actual[:, 1], label='Actual PM2.5', linestyle='dashed')
+plt.plot(predictions[:, 1], label='Predicted PM2.5', linestyle='dashed')
+plt.legend()
+plt.title("Actual vs Predicted AQI & PM2.5")
+plt.show()
+# ... (rest of the code remains the same) ...
+
+# Remove problematic lines:
+# df['Date'] = pd.to_datetime(df['Date'])
+# df.set_index('Date', inplace=True)
+
+# Instead, we can access the index directly if needed:
+# print(df.index)
+
+   
